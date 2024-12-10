@@ -20,7 +20,7 @@ const int NUM_OF_SHUFFLE_ITERATIONS_MULTIPLIER = 2;
 const bool RANDOM_SEED = true;
 const unsigned int SEED_INIT = 241441;
 
-#define NUM_OF_EXPERIMENTS 6
+#define NUM_OF_EXPERIMENTS 3
 #define NUM_OF_EXPERIMENT_PARAMS 3
 
 int experiments[NUM_OF_EXPERIMENTS][NUM_OF_EXPERIMENT_PARAMS] = {
@@ -28,12 +28,17 @@ int experiments[NUM_OF_EXPERIMENTS][NUM_OF_EXPERIMENT_PARAMS] = {
     {3, 4, 5},
     {10, 20, 30},
     {40, 60, 80},
-    {200, 400, 500},
-    {500, 800, 1000},
-    {1000, 3000, 5000},
+    // {200, 400, 500},
+    // {500, 800, 1000},
+    // {1000, 3000, 5000},
 };
 
+#define THREADS_NUM_LIST_SIZE 4
+int threadsNumList[THREADS_NUM_LIST_SIZE] = { 1, 2, 4, 8, 16, 32 };
+
 #define USE_OPENMP
+
+char* RESULT_FILE_NAME = "result.txt";
 
 // ____________________________________________________
 
@@ -63,8 +68,10 @@ void printPopulation(bool printFitness);
 void printFitness();
 void printArray(const int* array, int size);
 void printGenerationInfo(int generationNum, int bestSpeciesIndex);
-void printExperimentStart(int index, const int experiment[NUM_OF_EXPERIMENT_PARAMS]);
-void printExperimentResult(double resultTime);
+void printExperimentStart(int index, int numOfThreads);
+void printExperimentResult(double resultTime, int numOfThreads);
+void writeResultToFile(double resultTime, int numOfThreads);
+void writeResultFileHeaders();
 
 void initConstants(const int experiment[NUM_OF_EXPERIMENT_PARAMS]) {
     NUM_OF_TOURS = experiment[0];
@@ -380,33 +387,43 @@ int main(int argc, char** argv) {
     } else {
         SEED = SEED_INIT;
     }
-    for (int i = 0; i < NUM_OF_EXPERIMENTS; ++i) {
-        initConstants(experiments[i]);
 
-        printExperimentStart(i, experiments[i]);
+    FILE* resultFile = fopen(RESULT_FILE_NAME, "w");
+    fclose(resultFile);
 
-        int generationNum = 1;
+    writeResultFileHeaders();
 
-        population = (int*)malloc(POPULATION_SIZE * NUM_OF_TOURS * NUM_OF_PLAYERS * sizeof(int));
-        speciesFitness = (int*)malloc(POPULATION_SIZE * 2 * sizeof(int));
+    for (int i = 0; i < THREADS_NUM_LIST_SIZE; ++i) {
+        omp_set_num_threads(threadsNumList[i]);
+        for (int j = 0; j < NUM_OF_EXPERIMENTS; ++j) {
+            initConstants(experiments[j]);
 
-        const double startTime = omp_get_wtime();
+            printExperimentStart(j, threadsNumList[i]);
 
-        initPopulation();
+            int generationNum = 1;
 
-        while (generationNum <= MAX_NUM_OF_GENERATIONS) {
-            fitness();
-            selection();
-            crossover();
-            mutation();
-            ++generationNum;
+            population = (int*)malloc(POPULATION_SIZE * NUM_OF_TOURS * NUM_OF_PLAYERS * sizeof(int));
+            speciesFitness = (int*)malloc(POPULATION_SIZE * 2 * sizeof(int));
+
+            const double startTime = omp_get_wtime();
+
+            initPopulation();
+
+            while (generationNum <= MAX_NUM_OF_GENERATIONS) {
+                fitness();
+                selection();
+                crossover();
+                mutation();
+                ++generationNum;
+            }
+            const double resultTime = omp_get_wtime() - startTime;
+
+            printExperimentResult(resultTime, threadsNumList[i]);
+            writeResultToFile(resultTime, threadsNumList[i]);
+
+            free(population);
+            free(speciesFitness);
         }
-        const double resultTime = omp_get_wtime() - startTime;
-
-        printExperimentResult(resultTime);
-
-        free(population);
-        free(speciesFitness);
     }
     return 0;
 }
@@ -467,14 +484,41 @@ void printGenerationInfo(const int generationNum, const int bestSpeciesIndex) {
     printf("\n");
 }
 
-void printExperimentStart(const int index, const int experiment[NUM_OF_EXPERIMENT_PARAMS]) {
-    printf("Experiment #%i: (%d, %d, %d)\n", index + 1, experiment[0], experiment[1], experiment[2]);
+void printExperimentStart(
+    const int index,
+    const int numOfThreads
+) {
+    printf("Experiment #%i: [%d](%d, %d, %d)\n", index + 1, numOfThreads, NUM_OF_TOURS, NUM_OF_PLAYERS, NUM_OF_PLAYGROUNDS);
 }
 
-void printExperimentResult(const double resultTime) {
+void printExperimentResult(const double resultTime, const int numOfThreads) {
+    printf("Num of threads: %d\n", numOfThreads);
     printf("Num of tours: %d\n", NUM_OF_TOURS);
     printf("Num of players: %d\n", NUM_OF_PLAYERS);
     printf("Num of playgrounds: %d\n", NUM_OF_PLAYGROUNDS);
     printf("Time: %fs\n ", resultTime);
     printf("__________________________________________\n");
+}
+
+void writeResultFileHeaders() {
+    FILE* file = fopen(RESULT_FILE_NAME, "a");
+    fprintf(file, "NumOfThreads;NumOfTours;NumOfPlayers;NumOfPlaygrounds;ResultTime\n");
+    fclose(file);
+}
+
+void writeResultToFile(
+    const double resultTime,
+    const int numOfThreads
+) {
+    FILE* file = fopen(RESULT_FILE_NAME, "a");
+
+    fprintf(file, "%d;", numOfThreads);
+    fprintf(file, "%d;", NUM_OF_TOURS);
+    fprintf(file, "%d;", NUM_OF_PLAYERS);
+    fprintf(file, "%d;", NUM_OF_PLAYGROUNDS);
+    fprintf(file, "%f", resultTime);
+
+    fprintf(file, "\n");
+
+    fclose(file);
 }
