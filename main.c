@@ -20,21 +20,20 @@ const int NUM_OF_SHUFFLE_ITERATIONS_MULTIPLIER = 2;
 const bool RANDOM_SEED = true;
 const unsigned int SEED_INIT = 241441;
 
-#define NUM_OF_EXPERIMENTS 3
+#define NUM_OF_EXPERIMENTS 10
 #define NUM_OF_EXPERIMENT_PARAMS 3
 
-int experiments[NUM_OF_EXPERIMENTS][NUM_OF_EXPERIMENT_PARAMS] = {
-    // NUM_OF_TOURS (>= 1), NUM_OF_PLAYERS (> NUM_OF_TOURS), NUM_OF_PLAYGROUNDS (>= NUM_OF_PLAYERS)
-    {3, 4, 5},
-    {10, 20, 30},
-    {40, 60, 80},
-    // {200, 400, 500},
-    // {500, 800, 1000},
-    // {1000, 3000, 5000},
-};
+// NUM_OF_TOURS (>= 1), NUM_OF_PLAYERS (> NUM_OF_TOURS), NUM_OF_PLAYGROUNDS (>= NUM_OF_PLAYERS)
+int experiments[NUM_OF_EXPERIMENTS][NUM_OF_EXPERIMENT_PARAMS] = {};
 
-#define THREADS_NUM_LIST_SIZE 4
-int threadsNumList[THREADS_NUM_LIST_SIZE] = { 1, 2, 4, 8, 16, 32 };
+#define THREADS_NUM_LIST_SIZE 8
+int threadsNumList[THREADS_NUM_LIST_SIZE] = { 1, 2, 4, 8, 16, 32, 64, 128 };
+
+const int EXPERIMENT_NUM_OF_TOURS_STEP = 10;
+const int EXPERIMENT_NUM_OF_PLAYERS_STEP = 20;
+const int EXPERIMENT_NUM_OF_PLAYGROUNDS_STEP = 25;
+
+const int EXPERIMENT_BASE_VALUE_MULTIPLIER = 0;
 
 #define USE_OPENMP
 
@@ -48,7 +47,7 @@ int* speciesFitness; // 0 - minNumOfOpponents, 1 - minNumOfPlaygrounds
 
 const int NO_VALUE_PLAYGROUND = -1;
 
-const int halfOfPopulationSize = POPULATION_SIZE / 2;
+int halfOfPopulationSize;
 
 int NUM_OF_TOURS;
 int NUM_OF_PLAYERS;
@@ -81,6 +80,17 @@ void initConstants(const int experiment[NUM_OF_EXPERIMENT_PARAMS]) {
     halfOfNumOfTours = NUM_OF_TOURS / 2;
     halfOfNumOfPlayers = NUM_OF_PLAYERS / 2;
     numOfToursMinus1 = NUM_OF_TOURS - 1;
+
+    halfOfPopulationSize = POPULATION_SIZE / 2;
+}
+
+void initExperiments() {
+    for (int i = 0; i < NUM_OF_EXPERIMENTS; i++) {
+        const int value = i + 1;
+        experiments[i][0] = (value + EXPERIMENT_BASE_VALUE_MULTIPLIER) * EXPERIMENT_NUM_OF_TOURS_STEP;
+        experiments[i][1] = (value + EXPERIMENT_BASE_VALUE_MULTIPLIER) * EXPERIMENT_NUM_OF_PLAYERS_STEP;
+        experiments[i][2] = (value + EXPERIMENT_BASE_VALUE_MULTIPLIER) * EXPERIMENT_NUM_OF_PLAYGROUNDS_STEP;
+    }
 }
 
 void swap(int* array, const int i, const int j) {
@@ -185,9 +195,6 @@ int getIndexOfBestSpeciesFromIndicesArray(const int* indicesArray, const int ind
 void calculateMinNumOfOpponentsForSpecies(const int speciesIndex) {
     int opponentCountMin = -1;
 
-    #ifdef USE_OPENMP
-    #pragma omp parallel for
-    #endif
     for (int player = 0; player < NUM_OF_PLAYERS; ++player) {
         bool *distinctOpponents = calloc(NUM_OF_PLAYERS, sizeof(bool));
         int opponentCount = 0;
@@ -222,9 +229,6 @@ void calculateMinNumOfOpponentsForSpecies(const int speciesIndex) {
 void calculateMinNumOfPlaygroundsForSpecies(const int speciesIndex) {
     int playgroundCountMin = -1;
 
-    #ifdef USE_OPENMP
-    #pragma omp parallel for
-    #endif
     for (int player = 0; player < NUM_OF_PLAYERS; ++player) {
         bool *distinctPlaygrounds = calloc(NUM_OF_PLAYGROUNDS, sizeof(bool));
         int playgroundCount = 0;
@@ -282,7 +286,6 @@ void fitness() {
 void selection() {
     // Tournament selection
     int* tempPopulation = malloc(POPULATION_SIZE * NUM_OF_TOURS * NUM_OF_PLAYERS * sizeof(int));
-
     #ifdef USE_OPENMP
     #pragma omp parallel for
     #endif
@@ -303,17 +306,8 @@ void selection() {
         }
         free(speciesIndicesForTournament);
     }
-    #ifdef USE_OPENMP
-    #pragma omp parallel for collapse(3)
-    #endif
-    for (int i = 0; i < POPULATION_SIZE; ++ i) {
-        for (int j = 0; j < NUM_OF_TOURS; ++j) {
-            for (int k = 0; k < NUM_OF_PLAYERS; ++k) {
-                population(i, j, k, NUM_OF_TOURS, NUM_OF_PLAYERS) = tempPopulation[populationIndex(i, j, k, NUM_OF_TOURS, NUM_OF_PLAYERS)];
-            }
-        }
-    }
-    free(tempPopulation);
+    free(population);
+    population = tempPopulation;
 }
 
 void crossover() {
@@ -328,9 +322,6 @@ void crossover() {
         const int speciesSplitIndex = 1 + rand_r(&seed) % numOfToursMinus1;
 
         if (speciesSplitIndex < halfOfNumOfTours) {
-            #ifdef USE_OPENMP
-            #pragma omp parallel for
-            #endif
             for (int j = 0; j < speciesSplitIndex; ++j) {
                 tournamentSwap(
                     i,
@@ -340,9 +331,6 @@ void crossover() {
                 );
             }
         } else {
-            #ifdef USE_OPENMP
-            #pragma omp parallel for
-            #endif
             // we could swap last tours because we get in result population the same species
             for (int j = speciesSplitIndex; j < NUM_OF_TOURS; ++j) {
                 tournamentSwap(
@@ -358,12 +346,9 @@ void crossover() {
 
 void mutation() {
     #ifdef USE_OPENMP
-    #pragma omp parallel for collapse(1)
+    #pragma omp parallel for collapse(2)
     #endif
     for (int i = 0; i < POPULATION_SIZE; ++i) {
-        #ifdef USE_OPENMP
-        #pragma omp parallel for
-        #endif
         for (int j = 0; j < NUM_OF_TOURS; ++j) {
             unsigned int seed = (unsigned int)SEED ^ (unsigned int)omp_get_thread_num();
             for (int k = 0; k < NUM_OF_PLAYERS; ++k) {
@@ -393,8 +378,19 @@ int main(int argc, char** argv) {
 
     writeResultFileHeaders();
 
+    initExperiments();
+
     for (int i = 0; i < THREADS_NUM_LIST_SIZE; ++i) {
         omp_set_num_threads(threadsNumList[i]);
+        #ifdef USE_OPENMP
+        #pragma omp parallel
+        {
+            if (omp_get_thread_num() == 0) {
+                printf("Num of threads %d\n", omp_get_num_threads());
+            }
+        }
+        #endif
+
         for (int j = 0; j < NUM_OF_EXPERIMENTS; ++j) {
             initConstants(experiments[j]);
 
@@ -414,7 +410,10 @@ int main(int argc, char** argv) {
                 selection();
                 crossover();
                 mutation();
+
                 ++generationNum;
+
+                printPopulation(true);
             }
             const double resultTime = omp_get_wtime() - startTime;
 
