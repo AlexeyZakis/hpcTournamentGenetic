@@ -301,7 +301,8 @@ void selection() {
         );
         for (int j = 0; j < NUM_OF_TOURS; ++j) {
             for (int k = 0; k < NUM_OF_PLAYERS; ++k) {
-                tempPopulation[populationIndex(i, j, k, NUM_OF_TOURS, NUM_OF_PLAYERS)] = population(tournamentBestSpeciesIndex, j, k, NUM_OF_TOURS, NUM_OF_PLAYERS);
+                tempPopulation[populationIndex(i, j, k, NUM_OF_TOURS, NUM_OF_PLAYERS)]
+                    = population(tournamentBestSpeciesIndex, j, k, NUM_OF_TOURS, NUM_OF_PLAYERS);
             }
         }
         free(speciesIndicesForTournament);
